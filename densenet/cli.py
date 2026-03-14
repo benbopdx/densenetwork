@@ -644,3 +644,7 @@ def digest_cmd(notes_date_str: str | None, dry_run: bool, scan_only: bool) -> No
 
 # Register digest under the name "digest" (click uses the function name minus _cmd)
 cli.add_command(digest_cmd, name="digest")
+
+
+if __name__ == "__main__":
+    cli()
