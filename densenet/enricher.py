@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import anthropic
 import requests
@@ -30,24 +30,24 @@ from . import config, database
 class WorkItem(BaseModel):
     company: str
     role: str
-    period: str | None = None
+    period: Optional[str] = None
 
 
 class EduItem(BaseModel):
     school: str
-    degree: str | None = None
-    field: str | None = None
+    degree: Optional[str] = None
+    field: Optional[str] = None
 
 
 class EnrichedProfile(BaseModel):
     summary: str
-    skills: list[str]
-    interests: list[str]
-    expertise_areas: list[str]
-    work_history: list[WorkItem]
-    education: list[EduItem]
-    notable_achievements: list[str]
-    social_links: list[str]
+    skills: List[str]
+    interests: List[str]
+    expertise_areas: List[str]
+    work_history: List[WorkItem]
+    education: List[EduItem]
+    notable_achievements: List[str]
+    social_links: List[str]
 
 
 # ── Brave Search ───────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ class EnrichedProfile(BaseModel):
 BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 
 
-def _brave_search(query: str, count: int = 5) -> list[dict[str, str]]:
+def _brave_search(query: str, count: int = 5) -> List[Dict[str, str]]:
     """
     Query the Brave Search API and return a list of
     {title, url, description} dicts.
@@ -82,7 +82,7 @@ def _brave_search(query: str, count: int = 5) -> list[dict[str, str]]:
         return []  # graceful degradation – caller will proceed without results
 
 
-def _gather_search_results(contact: dict) -> tuple[list[dict], list[str]]:
+def _gather_search_results(contact: dict) -> Tuple[List[dict], List[str]]:
     """
     Run multiple search queries for the contact and return
     (results_list, source_urls).
@@ -99,8 +99,8 @@ def _gather_search_results(contact: dict) -> tuple[list[dict], list[str]]:
     if name:
         queries.append(f"{name} site:linkedin.com")
 
-    all_results: list[dict] = []
-    seen_urls: set[str]     = set()
+    all_results: List[Dict] = []
+    seen_urls: Set[str]     = set()
 
     for i, q in enumerate(queries):
         if i > 0:
@@ -223,7 +223,7 @@ def enrich_all(
     force: bool = False,
     max_age_days: int = 30,
     on_progress: Any = None,
-) -> dict[str, int]:
+) -> Dict[str, int]:
     """
     Enrich all contacts that need it.
 
