@@ -34,26 +34,36 @@ from . import config, granola
 # ── Prompt ─────────────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = textwrap.dedent("""\
-    You are a personal assistant helping someone stay on top of their commitments.
-    Your job is to read their meeting notes and extract every action item, promise,
-    or task they personally committed to — things they said *they* will do.
+    You are a personal assistant that synthesizes someone's daily meeting notes
+    into a clear, structured end-of-day brief.
+
+    Produce exactly three sections in this order:
+
+    1. What did you learn today?
+       Summarize the key insights, new information, and important things discovered
+       across all meetings. Focus on things that matter — skip small talk and logistics.
+
+    2. What did you decide on today?
+       Summarize the key decisions made during the day, noting which meeting they
+       came from where helpful. Only include real decisions, not open discussions.
+
+    3. What did you commit to do?
+       List every action item, promise, or task the note-taker personally committed
+       to — things *they* said they will do. Be specific and actionable.
+       Do not include tasks assigned to others.
 
     Rules:
-    - Only extract commitments made BY THE NOTE-TAKER, not by others.
-    - Look for explicit signals: "I will", "I'll", "I need to", "I should",
-      "I'm going to", "action item", "TODO", "follow up", "send", "schedule",
-      "reach out", "share", "review", "write up", "prepare", etc.
-    - Keep each item concise and actionable (verb + object).
-    - Preserve context: note which meeting it came from.
-    - If you find no commitments at all, say so briefly — do not fabricate items.
-    - Do not include things others said they would do.
-    - Output plain text only (no markdown code blocks). Use simple formatting
-      that reads well in both plain-text email clients and HTML.
+    - Use the exact section headings above, numbered 1–3.
+    - Under each heading, use a short bulleted list (- item).
+    - If a section has nothing to report, write "Nothing to report."
+    - Do not invent or embellish — only use what is in the notes.
+    - Output plain text only (no markdown code blocks or extra formatting).
+    - Keep bullets concise — one clear sentence each.
 """)
 
 _USER_PROMPT_TMPL = textwrap.dedent("""\
-    Here are my meeting notes from {date_label}. Please extract all action items
-    I personally committed to, grouped by meeting.
+    Here are my meeting notes from {date_label}. Please summarize them into the
+    three-section brief.
 
     {notes_block}
 """)
@@ -101,7 +111,7 @@ def extract_tasks(notes: list[dict], notes_date: date) -> str:
         if block.type == "text":
             return block.text.strip()
 
-    return "(No action items extracted.)"
+    return "(No brief could be generated.)"
 
 
 # ── Email sending ──────────────────────────────────────────────────────────────
@@ -112,22 +122,22 @@ _HTML_TEMPLATE = """\
 <head>
   <meta charset="utf-8">
   <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            color: #222; max-width: 640px; margin: 40px auto; padding: 0 20px; }}
-    h2   {{ color: #1a1a2e; margin-bottom: 4px; }}
-    .sub {{ color: #666; font-size: 14px; margin-bottom: 24px; }}
-    pre  {{ white-space: pre-wrap; font-family: inherit; font-size: 15px;
-            line-height: 1.6; background: #f7f7f9; border-left: 3px solid #6366f1;
-            padding: 16px 20px; border-radius: 4px; }}
+    body    {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+              color: #222; max-width: 640px; margin: 40px auto; padding: 0 20px; }}
+    h2      {{ color: #1a1a2e; margin-bottom: 4px; }}
+    .sub    {{ color: #666; font-size: 14px; margin-bottom: 28px; }}
+    pre     {{ white-space: pre-wrap; font-family: inherit; font-size: 15px;
+              line-height: 1.7; background: #f7f7f9; border-left: 3px solid #6366f1;
+              padding: 20px 24px; border-radius: 4px; }}
     .footer {{ font-size: 12px; color: #aaa; margin-top: 32px; border-top: 1px solid #eee;
-               padding-top: 12px; }}
+              padding-top: 12px; }}
   </style>
 </head>
 <body>
-  <h2>Good morning! ☀️</h2>
-  <p class="sub">Here are the things you said you'd do in your meetings on {date_label}.</p>
+  <h2>Your daily brief — {date_label}</h2>
+  <p class="sub">Here's what happened in your meetings yesterday.</p>
   <pre>{digest_escaped}</pre>
-  <p class="footer">Sent by DenseNet · digest for {date_label}</p>
+  <p class="footer">Sent by DenseNet · {date_label}</p>
 </body>
 </html>
 """
@@ -152,11 +162,10 @@ def send_digest_email(digest_text: str, notes_date: date) -> None:
     smtp_pass  = config.SMTP_PASSWORD
 
     date_label = notes_date.strftime("%A, %B %-d")
-    subject    = f"Your action items from {date_label}"
+    subject    = f"Your daily brief — {date_label}"
 
     plain_body = (
-        f"Good morning!\n\n"
-        f"Here are the things you said you'd do in your meetings on {date_label}:\n\n"
+        f"Your daily brief — {date_label}\n\n"
         f"{digest_text}\n\n"
         f"— DenseNet"
     )
