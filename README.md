@@ -7,6 +7,7 @@ AI-powered contact network management. Sync your top contacts from Airtable, enr
 1. **Sync** – pulls your contacts from Airtable using configurable filters
 2. **Enrich** – builds a rich profile on each contact (skills, interests, work history, expertise) by searching public information and structuring it with Claude
 3. **Ask** – chat with Claude about your network to find the right people for any goal
+4. **Digest** – scans your Granola meeting notes each morning and emails you everything you said you'd do
 
 ## Quick start
 
@@ -71,6 +72,15 @@ densenet ask "Find me people who are interested in climate tech"
 densenet ask
 ```
 
+### 7. Get your morning task digest
+
+```bash
+densenet digest --dry-run         # preview what would be sent
+densenet digest                   # send the email now
+```
+
+Schedule it to run at 7 AM with cron (see [Granola digest setup](#granola-digest-setup) below).
+
 ---
 
 ## All commands
@@ -90,6 +100,10 @@ densenet criteria add ...         Add a sync filter
 densenet criteria remove ID       Remove a sync filter
 densenet fields                   Show Airtable field names
 densenet stats                    Database statistics
+densenet digest                   Scan Granola notes, send task digest email
+densenet digest --dry-run         Preview digest without sending
+densenet digest --date YYYY-MM-DD Scan a specific day's notes
+densenet digest --scan-only       List notes found without extracting tasks
 ```
 
 ---
@@ -152,6 +166,70 @@ Without a Brave API key, Claude still builds a basic profile from the Airtable d
 - All contact profiles are included in the system prompt (with prompt caching for efficiency)
 - You can have a multi-turn conversation – context is maintained within the session
 - Claude reasons about your whole network to surface the most relevant connections and explain *why* each person is a good match
+
+---
+
+## Granola digest setup
+
+`densenet digest` reads your [Granola](https://granola.ai) meeting notes, uses Claude to extract every action item you personally committed to, and sends you a clean email digest.
+
+### 1. Configure email in `.env`
+
+```dotenv
+# Recipient and sender
+EMAIL_TO=you@example.com
+EMAIL_FROM=you@example.com
+
+# SMTP (Gmail example — use an App Password, not your regular password)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@gmail.com
+SMTP_PASSWORD=xxxx-xxxx-xxxx-xxxx   # Gmail App Password
+```
+
+For Gmail, generate an App Password at: **Google Account → Security → App Passwords**.
+
+### 2. Configure Granola path (optional)
+
+By default, the digest looks for Granola's SQLite database at:
+```
+~/Library/Application Support/Granola/granola.db
+```
+
+Override with `.env`:
+```dotenv
+GRANOLA_DB_PATH=~/Library/Application Support/Granola/granola.db
+```
+
+If you export notes as Markdown files instead, point to that directory:
+```dotenv
+GRANOLA_NOTES_DIR=~/Documents/granola-notes
+```
+Files must contain the date in their name, e.g. `2025-03-14-standup.md`.
+
+### 3. Test it
+
+```bash
+densenet digest --scan-only    # confirm notes are being found
+densenet digest --dry-run      # preview the extracted tasks
+densenet digest                # send the real email
+```
+
+### 4. Schedule at 7 AM with cron
+
+```bash
+crontab -e
+```
+
+Add this line (replace `/path/to/your/project` with the actual path):
+
+```cron
+0 7 * * 1-5 cd /path/to/your/project && /usr/local/bin/densenet digest >> ~/densenet-digest.log 2>&1
+```
+
+This runs Monday–Friday at 7:00 AM, scans yesterday's notes, and sends the email. Logs go to `~/densenet-digest.log`.
+
+> **Tip:** Run `which densenet` to get the full path to the binary.
 
 ---
 

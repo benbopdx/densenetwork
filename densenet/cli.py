@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import date
 
 import click
 from rich.console import Console
@@ -27,7 +28,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from rich.table import Table
 from rich.text import Text
 
-from . import config, database, airtable_sync, enricher, ai_search
+from . import config, database, airtable_sync, enricher, ai_search, granola, digest
 
 console = Console()
 
@@ -524,3 +525,122 @@ def stats() -> None:
     table.add_row("Enrichment mode", enrichment_mode)
 
     console.print(Panel(table, title="[bold]DenseNet Stats[/bold]", border_style="blue"))
+
+
+# ── digest ──────────────────────────────────────────────────────────────────────
+
+@cli.command()
+@click.option("--date", "notes_date_str", default=None,
+              help="Scan notes for this date (YYYY-MM-DD). Default: yesterday.")
+@click.option("--dry-run", is_flag=True,
+              help="Print the digest to the terminal instead of sending email.")
+@click.option("--scan-only", is_flag=True,
+              help="List notes found without extracting tasks or sending email.")
+def digest_cmd(notes_date_str: str | None, dry_run: bool, scan_only: bool) -> None:
+    """
+    Scan Granola notes and email you your action items.
+
+    Reads notes from Granola's local database (or GRANOLA_NOTES_DIR),
+    extracts every commitment you made, and sends a digest email at any
+    time you run the command (pair with a 7 AM cron job for morning delivery).
+
+    \b
+    Examples:
+      densenet digest                   # scan yesterday, send email
+      densenet digest --dry-run         # preview digest, no email sent
+      densenet digest --date 2025-03-13 # scan a specific day
+      densenet digest --scan-only       # just show what notes were found
+    """
+    # ── parse date ──
+    target_date: date | None = None
+    if notes_date_str:
+        try:
+            target_date = date.fromisoformat(notes_date_str)
+        except ValueError:
+            console.print(f"[bold red]Invalid date:[/bold red] {notes_date_str!r}. Use YYYY-MM-DD.")
+            sys.exit(1)
+
+    from datetime import timedelta
+    display_date = target_date or (date.today() - timedelta(days=1))
+
+    # ── show notes source ──
+    source_desc = granola.notes_source_description()
+    console.print(f"[dim]Notes source: {source_desc}[/dim]")
+
+    # ── scan only ──
+    if scan_only:
+        notes = granola.get_notes_for_date(target_date)
+        if not notes:
+            console.print(
+                f"[yellow]No notes found for {display_date.isoformat()}.[/yellow]\n"
+                "Check GRANOLA_DB_PATH or GRANOLA_NOTES_DIR in your .env."
+            )
+            return
+        console.print(f"\n[bold]{len(notes)} note(s) found for {display_date.isoformat()}:[/bold]")
+        for i, note in enumerate(notes, 1):
+            title = note.get("title") or "Untitled"
+            words = len((note.get("content") or "").split())
+            console.print(f"  {i}. [cyan]{title}[/cyan] [dim]({words} words)[/dim]")
+        return
+
+    # ── require config for full run ──
+    if not dry_run:
+        missing = config.check_digest_required()
+        if missing:
+            console.print(
+                "[bold red]Missing config for email:[/bold red] "
+                + ", ".join(missing)
+                + "\nAdd these to your .env file."
+            )
+            sys.exit(1)
+    else:
+        # dry-run only needs Anthropic key
+        if not config.ANTHROPIC_API_KEY:
+            console.print("[bold red]Missing config:[/bold red] ANTHROPIC_API_KEY")
+            sys.exit(1)
+
+    # ── run digest pipeline ──
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        progress.add_task(
+            f"Scanning notes for {display_date.isoformat()}…",
+            total=None,
+        )
+        try:
+            result = digest.run_digest(notes_date=target_date, dry_run=dry_run)
+        except Exception as exc:
+            console.print(f"[bold red]Digest failed:[/bold red] {exc}")
+            sys.exit(1)
+
+    if result["status"] == "no_notes":
+        console.print(
+            f"[yellow]No notes found for {result['date']}.[/yellow]\n"
+            "Check GRANOLA_DB_PATH or GRANOLA_NOTES_DIR in your .env."
+        )
+        return
+
+    count = result["note_count"]
+
+    if dry_run:
+        console.print(
+            Panel(
+                result["digest"],
+                title=f"[bold]Digest preview — {result['date']} ({count} note{'s' if count != 1 else ''})[/bold]",
+                border_style="blue",
+            )
+        )
+        console.print("[dim]Dry run — no email sent.[/dim]")
+    else:
+        console.print(
+            f"[bold green]Digest sent![/bold green] "
+            f"Scanned [cyan]{count}[/cyan] note{'s' if count != 1 else ''} from [cyan]{result['date']}[/cyan]. "
+            f"Email sent to [cyan]{config.EMAIL_TO}[/cyan]."
+        )
+
+
+# Register digest under the name "digest" (click uses the function name minus _cmd)
+cli.add_command(digest_cmd, name="digest")
